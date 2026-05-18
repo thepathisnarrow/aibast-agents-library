@@ -33,6 +33,23 @@ load_dotenv()
 app = Flask(__name__, static_folder=os.path.dirname(os.path.abspath(__file__)))
 CORS(app)
 
+# ── Dashboard Blueprint ───────────────────────────────────────────────────────
+from dashboard_api import dashboard_bp
+app.register_blueprint(dashboard_bp)
+
+# Serve built dashboard SPA at /dashboard/
+_dashboard_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard", "dist")
+
+@app.route("/dashboard/", defaults={"path": ""})
+@app.route("/dashboard/<path:path>")
+def serve_dashboard(path):
+    """Serve the React dashboard (built with Vite)."""
+    from flask import send_from_directory as sfd
+    if path and os.path.exists(os.path.join(_dashboard_dist, path)):
+        return sfd(_dashboard_dist, path)
+    # SPA fallback — serve index.html for client-side routing
+    return sfd(_dashboard_dist, "index.html")
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 SOUL_PATH   = os.getenv("SOUL_PATH",   os.path.join(os.path.dirname(__file__), "soul.md"))

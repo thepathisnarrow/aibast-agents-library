@@ -3,6 +3,9 @@
 .copilot_session
 .env
 
+# Per-SE environment config (contains tenant/subscription IDs)
+env.yaml
+
 # Python
 __pycache__/
 *.pyc

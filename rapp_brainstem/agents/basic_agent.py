@@ -1,5 +1,22 @@
+# ── Safety Constraints (apply to ALL agents) ──────────────────────────────
+
+SAFETY_CONSTRAINTS = {
+    "no_delete_without_approval": (
+        "NEVER delete, purge, or destroy Azure resources, Fabric items "
+        "(workspaces, lakehouses, warehouses, pipelines, semantic models, "
+        "eventstreams, data agents, etc.), or local assets (files, databases, "
+        "configurations) without explicit approval from Dave. "
+        "Generated scripts involving deletion MUST include a confirmation gate "
+        "and be clearly marked as requiring Dave's approval before execution."
+    ),
+}
+
+
 class BasicAgent:
     """Base class for all RAPP Brainstem agents. Extend this in your private agent files."""
+
+    # All agents inherit these safety constraints
+    safety_constraints = SAFETY_CONSTRAINTS
 
     def __init__(self, name=None, metadata=None):
         if name is not None:

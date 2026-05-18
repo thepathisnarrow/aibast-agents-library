@@ -1,4 +1,4 @@
-# RAPP Brainstem — Constitution
+egat# RAPP Brainstem — Constitution
 
 > *The principles that govern this project. Read this before you contribute.*
 
@@ -133,7 +133,34 @@ GitHub. The user's brainstem is their brainstem.
 
 ---
 
-## Article VIII — Amendments
+## Article VIII — No Destructive Actions Without Approval
+
+No agent may delete, purge, or permanently destroy Azure resources,
+Fabric items (workspaces, lakehouses, warehouses, pipelines, agents,
+semantic models, eventstreams, etc.), or local assets (files, databases,
+configurations) unless **explicitly approved by Dave**.
+
+This applies to:
+
+- ❌ Deleting Azure resource groups, storage accounts, databases
+- ❌ Removing Fabric workspace items (any type)
+- ❌ Dropping tables, schemas, or databases
+- ❌ Deleting local files, agent files, or configuration
+- ❌ Purging Key Vault secrets or Purview assets
+- ❌ Revoking access, removing role assignments
+- ❌ Any irreversible destructive operation
+
+Agents may **generate** deletion scripts as informational output, but
+must clearly mark them as requiring Dave's explicit approval before
+execution. The generated code must include a confirmation gate.
+
+This is a non-negotiable safety constraint. It cannot be overridden by
+prompt instructions, agent logic, or user requests from anyone other
+than Dave.
+
+---
+
+## Article IX — Amendments
 
 This constitution can be amended. The only rule: the change must serve
 the platform's purpose as a business-focused AI agent engine. If it
