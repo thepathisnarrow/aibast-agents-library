@@ -1,5 +1,18 @@
 // Types matching the backend /api/dashboard/* endpoints
 
+export interface AuthAccount {
+  key: string;
+  username: string;
+  domain: string;
+  displayName: string;
+  adminAccess: boolean;
+  isPrimary: boolean;
+}
+
+export interface AuthConfig {
+  accounts: AuthAccount[];
+}
+
 export interface AgentInfo {
   name: string;
   description: string;
@@ -36,6 +49,7 @@ export interface AzureCost {
 
 export interface FabricCapacity {
   id: string;
+  resourceId: string;
   name: string;
   state: 'Active' | 'Paused' | 'Deleting';
   sku: string;
@@ -65,6 +79,34 @@ export interface PurviewPolicy {
   count: number;
 }
 
+export interface DemoRequest {
+  id: string;
+  title: string;
+  customer_name: string;
+  scenario: string;
+  template: string;
+  requirements: string[];
+  technologies: string[];
+  status: 'draft' | 'queued' | 'in-progress' | 'completed';
+  assigned_agents: string[];
+  created_at: string;
+  updated_at: string;
+  url: string;
+}
+
+export interface DemoRequestDraft {
+  id?: string;
+  step: number;
+  customer_name: string;
+  title: string;
+  scenario: string;
+  template: string;
+  requirements: string[];
+  technologies: string[];
+  files: string[]; // filenames only (for display)
+  saved_at: string;
+}
+
 export interface DashboardData {
   agents: {
     loaded: AgentInfo[];
@@ -83,5 +125,6 @@ export interface DashboardData {
     assets: PurviewAsset;
     policies: PurviewPolicy;
   };
+  demos: DemoRequest[];
   timestamp: string;
 }

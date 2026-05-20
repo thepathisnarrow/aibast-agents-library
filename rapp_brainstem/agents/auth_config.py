@@ -48,20 +48,20 @@ _tenant_domain = (
     or _tenant_cfg.get("domain")
     or "MngEnvMCAPXXXXXX.onmicrosoft.com"
 )
+_mea_admin = (
+    os.getenv("MCAPS_MEA_ADMIN")
+    or _tenant_cfg.get("mea_admin")
+    or f"admin@{_tenant_domain}"
+)
 _login_hint = (
     os.getenv("MCAPS_LOGIN_HINT")
     or _tenant_cfg.get("login_hint")
-    or "yourname@microsoft.com"
+    or _mea_admin
 )
 _display_name = (
     os.getenv("MCAPS_DISPLAY_NAME")
     or _tenant_cfg.get("display_name")
     or "MCAPS (Demo Environment)"
-)
-_mea_admin = (
-    os.getenv("MCAPS_MEA_ADMIN")
-    or _tenant_cfg.get("mea_admin")
-    or f"admin@{_tenant_domain}"
 )
 _subscription_id = (
     os.getenv("MCAPS_SUBSCRIPTION_ID")
@@ -90,6 +90,23 @@ OWNER_NAME = os.getenv("OWNER_NAME") or _cfg.get("owner_name") or "Dave"
 # Backward-compatible aliases
 MCAPS_TENANT = TARGET_M365_TENANT
 EXP_TENANT = TARGET_M365_TENANT
+
+# ── Secondary Tenants (Multi-Account) ─────────────────────────────────────
+
+_secondary_cfg = _cfg.get("secondary_tenants") or {}
+
+SECONDARY_TENANTS: dict[str, dict] = {}
+for _key, _val in _secondary_cfg.items():
+    if not isinstance(_val, dict):
+        continue
+    SECONDARY_TENANTS[_key] = {
+        "tenant_id": _val.get("tenant_id", ""),
+        "login_hint": _val.get("login_hint", ""),
+        "display_name": _val.get("display_name", _key),
+        "subscription_id": _val.get("subscription_id", ""),
+        "purview_account": _val.get("purview_account", ""),
+        "admin_access": _val.get("admin_access", False),
+    }
 
 # ── Resource scopes for token acquisition ──────────────────────────────────
 

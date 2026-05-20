@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   makeStyles,
@@ -9,6 +9,7 @@ import {
   Text,
   Tooltip,
   Select,
+  Button,
 } from '@fluentui/react-components';
 import {
   BrainCircuit24Regular,
@@ -17,10 +18,13 @@ import {
   Cloud24Regular,
   Database24Regular,
   Shield24Regular,
+  Beaker24Regular,
   WeatherMoon24Regular,
   WeatherSunny24Regular,
   ArrowSync24Regular,
+  Settings24Regular,
 } from '@fluentui/react-icons';
+import { SettingsPanel } from './SettingsPanel';
 
 const useStyles = makeStyles({
   root: {
@@ -78,6 +82,7 @@ interface ShellProps {
 const tabs = [
   { value: '/', label: 'Overview', icon: <Home24Regular /> },
   { value: '/agents', label: 'Agents', icon: <Bot24Regular /> },
+  { value: '/demos', label: 'Demos', icon: <Beaker24Regular /> },
   { value: '/azure', label: 'Azure', icon: <Cloud24Regular /> },
   { value: '/fabric', label: 'Fabric', icon: <Database24Regular /> },
   { value: '/purview', label: 'Purview', icon: <Shield24Regular /> },
@@ -87,6 +92,7 @@ export function Shell({ children, isDark, onToggleTheme, refreshInterval, onRefr
   const styles = useStyles();
   const navigate = useNavigate();
   const location = useLocation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const currentTab = tabs.find(t => t.value === location.pathname)?.value ?? '/';
 
@@ -119,4 +125,41 @@ export function Shell({ children, isDark, onToggleTheme, refreshInterval, onRefr
             <ArrowSync24Regular />
             <Select
               size="small"
-    
+              value={String(refreshInterval)}
+              onChange={(_, d) => onRefreshIntervalChange(Number(d.value))}
+            >
+              <option value="10000">10s</option>
+              <option value="30000">30s</option>
+              <option value="60000">1 min</option>
+              <option value="300000">5 min</option>
+              <option value="0">Off</option>
+            </Select>
+          </div>
+
+          <div className={styles.themeToggle}>
+            <Tooltip content={isDark ? 'Switch to light mode' : 'Switch to dark mode'} relationship="label">
+              <Switch
+                checked={isDark}
+                onChange={onToggleTheme}
+                label={isDark ? <WeatherMoon24Regular /> : <WeatherSunny24Regular />}
+              />
+            </Tooltip>
+          </div>
+
+          <Tooltip content="Settings" relationship="label">
+            <Button
+              appearance="subtle"
+              icon={<Settings24Regular />}
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Settings"
+            />
+          </Tooltip>
+        </div>
+      </header>
+
+      <main className={styles.content}>{children}</main>
+
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </div>
+  );
+}

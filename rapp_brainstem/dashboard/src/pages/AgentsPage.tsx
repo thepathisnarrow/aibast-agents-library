@@ -24,10 +24,13 @@ import {
 import {
   ArrowClockwise24Regular,
   Add24Regular,
-  Open24Regular,
+  ChevronRight24Regular,
+  ChevronDown24Regular,
+  Bot24Regular,
 } from '@fluentui/react-icons';
+import { useNavigate } from 'react-router-dom';
 import type { DashboardData } from '../api/types';
-import { submitProject } from '../api/client';
+import { submitDemoRequest } from '../api/client';
 
 const useStyles = makeStyles({
   page: {
@@ -53,19 +56,11 @@ const useStyles = makeStyles({
   agentCard: {
     padding: '16px',
   },
-  projectList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
+  agentIcon: {
+    color: tokens.colorBrandForeground1,
+    marginBottom: '8px',
   },
-  projectItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '12px 16px',
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground3,
-  },
+
   wizardStep: {
     display: 'flex',
     flexDirection: 'column',
@@ -95,14 +90,18 @@ interface PageProps {
   onRefresh: () => void;
 }
 
+const SYSTEM_AGENT_NAMES = ['Basic', 'Context Memory', 'Hacker News', 'Manage Memory'];
+
 export function AgentsPage({ data, loading, error: _error, onRefresh }: PageProps) {
   const styles = useStyles();
+  const navigate = useNavigate();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
   const [projectTitle, setProjectTitle] = useState('');
   const [projectDesc, setProjectDesc] = useState('');
   const [projectFiles, setProjectFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [systemExpanded, setSystemExpanded] = useState(false);
 
   if (loading && !data) {
     return <Spinner label="Loading agents..." size="large" />;
@@ -113,9 +112,13 @@ export function AgentsPage({ data, loading, error: _error, onRefresh }: PageProp
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      await submitProject({
+      await submitDemoRequest({
         title: projectTitle,
-        description: projectDesc,
+        customer_name: '',
+        scenario: projectDesc,
+        template: '',
+        requirements: [],
+        technologies: [],
         files: projectFiles.length > 0 ? projectFiles : undefined,
       });
       setWizardOpen(false);
@@ -124,6 +127,7 @@ export function AgentsPage({ data, loading, error: _error, onRefresh }: PageProp
       setProjectDesc('');
       setProjectFiles([]);
       onRefresh();
+      navigate('/demos');
     } finally {
       setSubmitting(false);
     }
@@ -151,7 +155,7 @@ export function AgentsPage({ data, loading, error: _error, onRefresh }: PageProp
           <Dialog open={wizardOpen} onOpenChange={(_, d) => setWizardOpen(d.open)}>
             <DialogTrigger disableButtonEnhancement>
               <Button appearance="primary" icon={<Add24Regular />}>
-                Submit Project
+                Submit Demo
               </Button>
             </DialogTrigger>
             <DialogSurface>
@@ -270,58 +274,56 @@ export function AgentsPage({ data, loading, error: _error, onRefresh }: PageProp
       <div className={styles.section}>
         <Text weight="semibold" size={400}>Brainstem Agents Loaded</Text>
         <div className={styles.agentGrid}>
-          {data.agents.loaded.map(agent => (
-            <Card key={agent.name} className={styles.agentCard}>
-              <CardHeader
-                header={<Text weight="semibold">{agent.name}</Text>}
-                action={
-                  <Badge appearance="filled" color={statusColor(agent.status)} size="small">
-                    {agent.status}
-                  </Badge>
-                }
-              />
-              <Text size={200}>{agent.description}</Text>
-            </Card>
-          ))}
+          {data.agents.loaded
+            .filter(agent => !SYSTEM_AGENT_NAMES.includes(agent.name))
+            .map(agent => (
+              <Card key={agent.name} className={styles.agentCard}>
+                <CardHeader
+                  image={<Bot24Regular className={styles.agentIcon} />}
+                  header={<Text weight="semibold">{agent.name}</Text>}
+                  action={
+                    <Badge appearance="filled" color={statusColor(agent.status)} size="small">
+                      {agent.status}
+                    </Badge>
+                  }
+                />
+                <Text size={200}>{agent.description}</Text>
+              </Card>
+            ))}
         </div>
       </div>
 
-      {/* Projects */}
+      {/* Brainstem System Agents (collapsible) */}
       <div className={styles.section}>
-        <Text weight="semibold" size={400}>Projects</Text>
-        <div className={styles.projectList}>
-          {data.agents.projects.length === 0 && (
-            <Text italic size={200}>No projects in queue. Submit one above!</Text>
-          )}
-          {data.agents.projects.map(proj => (
-            <div key={proj.id} className={styles.projectItem}>
-              <div>
-                <Text weight="semibold">{proj.title}</Text>
-                <br />
-                <Text size={200}>{proj.description.slice(0, 100)}</Text>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Badge
-                  appearance="filled"
-                  color={
-                    proj.status === 'completed' ? 'success'
-                    : proj.status === 'in-progress' ? 'warning'
-                    : 'informative'
-                  }
-                >
-                  {proj.status}
-                </Badge>
-                <a href={proj.url} target="_blank" rel="noopener noreferrer">
-                  <Button
-                    appearance="subtle"
-                    icon={<Open24Regular />}
+        <Button
+          appearance="subtle"
+          icon={systemExpanded ? <ChevronDown24Regular /> : <ChevronRight24Regular />}
+          onClick={() => setSystemExpanded(!systemExpanded)}
+        >
+          <Text weight="semibold" size={400}>Brainstem System ({data.agents.loaded.filter(a => SYSTEM_AGENT_NAMES.includes(a.name)).length})</Text>
+        </Button>
+        {systemExpanded && (
+          <div className={styles.agentGrid}>
+            {data.agents.loaded
+              .filter(agent => SYSTEM_AGENT_NAMES.includes(agent.name))
+              .map(agent => (
+                <Card key={agent.name} className={styles.agentCard}>
+                  <CardHeader
+                    image={<Bot24Regular className={styles.agentIcon} />}
+                    header={<Text weight="semibold">{agent.name}</Text>}
+                    action={
+                      <Badge appearance="filled" color={statusColor(agent.status)} size="small">
+                        {agent.status}
+                      </Badge>
+                    }
                   />
-                </a>
-              </div>
-            </div>
-          ))}
-        </div>
+                  <Text size={200}>{agent.description}</Text>
+                </Card>
+              ))}
+          </div>
+        )}
       </div>
+
     </div>
   );
 }

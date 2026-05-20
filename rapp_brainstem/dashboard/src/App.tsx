@@ -12,6 +12,7 @@ import { AgentsPage } from './pages/AgentsPage';
 import { AzurePage } from './pages/AzurePage';
 import { FabricPage } from './pages/FabricPage';
 import { PurviewPage } from './pages/PurviewPage';
+import { DemoPage } from './pages/DemoPage';
 import type { DashboardData } from './api/types';
 import { fetchDashboardData } from './api/client';
 
@@ -20,7 +21,7 @@ export function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshInterval, setRefreshInterval] = useState(30000);
+  const [refreshInterval, setRefreshInterval] = useState(300000);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,6 +56,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<OverviewPage data={data} loading={loading} error={error} onRefresh={refresh} />} />
             <Route path="/agents" element={<AgentsPage data={data} loading={loading} error={error} onRefresh={refresh} />} />
+            <Route path="/demos" element={<DemoPage data={data} loading={loading} error={error} onRefresh={refresh} />} />
             <Route path="/azure" element={<AzurePage data={data} loading={loading} error={error} onRefresh={refresh} />} />
             <Route path="/fabric" element={<FabricPage data={data} loading={loading} error={error} onRefresh={refresh} />} />
             <Route path="/purview" element={<PurviewPage data={data} loading={loading} error={error} onRefresh={refresh} />} />

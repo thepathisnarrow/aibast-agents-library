@@ -127,12 +127,65 @@ if ($meaAdmin) {
     Write-Host "No MEA configured — set mea_admin in env.yaml for admin operations." -ForegroundColor DarkYellow
 }
 
+# ── Secondary Tenant Pre-Auth (Optional) ──────────────────────────────────
+# If secondary tenants are configured, inform the user that browser auth
+# will be triggered on first dashboard load (via InteractiveBrowserCredential).
+# Token is cached persistently after first login — no repeat prompts.
+
+function Get-SecondaryTenants {
+    $envYaml = Join-Path $PSScriptRoot "env.yaml"
+    if (-not (Test-Path $envYaml)) { return @() }
+    $content = Get-Content $envYaml -Raw
+    # Simple regex to find secondary tenant display names
+    $tenants = @()
+    if ($content -match "secondary_tenants:") {
+        # Look for login_hint entries
+        $matches2 = [regex]::Matches($content, 'login_hint:\s*"?([^"\r\n]+)"?')
+        foreach ($m in $matches2) {
+            $tenants += $m.Groups[1].Value.Trim()
+        }
+    }
+    return $tenants
+}
+
+$secondaryAccounts = Get-SecondaryTenants
+if ($secondaryAccounts.Count -gt 0) {
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkCyan
+    Write-Host "  Secondary Tenants (Multi-Account)" -ForegroundColor Cyan
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkCyan
+    foreach ($acct in $secondaryAccounts) {
+        Write-Host "    • $acct" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "  These accounts use persistent token cache." -ForegroundColor Gray
+    Write-Host "  First access will open a browser for login." -ForegroundColor Gray
+    Write-Host "  Subsequent starts use cached tokens (no browser)." -ForegroundColor Gray
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkCyan
+    Write-Host ""
+}
+
 # Check gh CLI (optional — the web login flow works without it)
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if ($gh) {
     Write-Host "gh CLI found — token will be auto-detected if you're logged in." -ForegroundColor Green
 } else {
     Write-Host "gh CLI not found — you can authenticate via the web UI at http://localhost:7071" -ForegroundColor Yellow
+}
+
+# ── Build Dashboard ────────────────────────────────────────────────────────────
+$dashDir = Join-Path $PSScriptRoot "dashboard"
+if (Test-Path (Join-Path $dashDir "package.json")) {
+    Write-Host ""
+    Write-Host "Building dashboard..." -ForegroundColor Cyan
+    Push-Location $dashDir
+    npm run build 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Dashboard built successfully." -ForegroundColor Green
+    } else {
+        Write-Host "Dashboard build failed — serving previous build." -ForegroundColor Yellow
+    }
+    Pop-Location
 }
 
 Write-Host ""
