@@ -23,6 +23,7 @@ import {
   Checkbox,
   Tooltip,
   MessageBar,
+  MessageBarActions,
   MessageBarBody,
   MessageBarTitle,
 } from '@fluentui/react-components';
@@ -32,10 +33,12 @@ import {
   Open16Regular,
   Save24Regular,
   Delete24Regular,
-  Play24Regular,
+  Dismiss24Regular,
+  Edit24Regular,
 } from '@fluentui/react-icons';
 import type { DashboardData, DemoRequest, DemoRequestDraft } from '../api/types';
 import { submitDemoRequest } from '../api/client';
+import { DemoRunSection } from '../components/DemoRunSection';
 
 const DRAFT_STORAGE_KEY = 'brainstem_demo_drafts';
 
@@ -48,19 +51,37 @@ const SCENARIO_TEMPLATES = [
   { key: 'full_platform', label: 'Complete Data Platform Demo (All Technologies)' },
 ];
 
-const TECHNOLOGY_OPTIONS = [
-  'Fabric Lakehouse',
-  'Fabric Mirroring',
-  'Real-Time Intelligence',
-  'Semantic Model / Power BI',
-  'Microsoft Purview',
-  'Fabric Data Agent',
-  'Copilot Studio',
-  'Foundry Agent',
-  'M365 Copilot',
-  'Event Hubs',
-  'Azure SQL',
-  'Cosmos DB',
+const TECHNOLOGY_GROUPS: { label: string; options: string[] }[] = [
+  {
+    label: 'Fabric',
+    options: [
+      'Fabric Lakehouse',
+      'Fabric Warehouse',
+      'Fabric SQL Database',
+      'Fabric Mirroring',
+      'Real-Time Intelligence',
+      'Semantic Model / Power BI',
+      'Fabric Data Agent',
+    ],
+  },
+  {
+    label: 'Azure',
+    options: [
+      'Azure SQL',
+      'Cosmos DB',
+      'Event Hubs',
+      'Azure Storage',
+      'Microsoft Purview',
+      'Foundry Agent',
+    ],
+  },
+  {
+    label: 'M365',
+    options: [
+      'M365 Copilot',
+      'Copilot Studio',
+    ],
+  },
 ];
 
 const REQUIREMENT_OPTIONS = [
@@ -74,6 +95,23 @@ const REQUIREMENT_OPTIONS = [
   'Audit/compliance',
   'Power BI reports',
   'Activator alerts',
+];
+
+// Industry options — alphabetical, used to scope demo data + Purview profile.
+const INDUSTRIES = [
+  'Automotive Mobility & Transportation',
+  'Defense & Intelligence',
+  'Education',
+  'Energy & Resources',
+  'Financial Services',
+  'Government',
+  'Healthcare',
+  'Industrials & Manufacturing',
+  'Professional Services',
+  'Retail & Consumer Goods',
+  'Sustainability',
+  'Telecommunications & Media',
+  'Travel Transportation & Hospitality',
 ];
 
 const useStyles = makeStyles({
@@ -116,16 +154,44 @@ const useStyles = makeStyles({
     flexWrap: 'wrap',
     marginTop: '4px',
   },
+  wizardSurface: {
+    maxWidth: '900px',
+    width: '900px',
+  },
   wizardStep: {
     display: 'flex',
     flexDirection: 'column',
     gap: '16px',
-    minWidth: '480px',
+    minWidth: '720px',
   },
   checkboxGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
     gap: '4px',
+  },
+  checkboxGridScroll: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr 1fr',
+    gap: '4px',
+    maxHeight: '180px',
+    overflowY: 'auto',
+    paddingRight: '8px',
+    scrollbarWidth: 'thin',
+    scrollbarColor: `${tokens.colorNeutralStroke2} transparent`,
+    '::-webkit-scrollbar': {
+      width: '8px',
+      height: '8px',
+    },
+    '::-webkit-scrollbar-track': {
+      backgroundColor: 'transparent',
+    },
+    '::-webkit-scrollbar-thumb': {
+      backgroundColor: tokens.colorNeutralStroke2,
+      borderRadius: '4px',
+    },
+    '::-webkit-scrollbar-thumb:hover': {
+      backgroundColor: tokens.colorNeutralStroke1,
+    },
   },
   draftBanner: {
     marginBottom: '8px',
@@ -191,6 +257,11 @@ function createEmptyDraft(): DemoRequestDraft {
     id: crypto.randomUUID(),
     step: 0,
     customer_name: '',
+    customer_website_url: '',
+    industry_primary: '',
+    industry_secondary: '',
+    azure_region: 'westus3',
+    existing_fabric_workspace_id: '',
     title: '',
     scenario: '',
     template: '',
@@ -210,14 +281,39 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
   const [activeDraft, setActiveDraft] = useState<DemoRequestDraft | null>(null);
   const [wizardStep, setWizardStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  // Optimistically-injected demos that haven't yet appeared in the server payload.
+  const [optimisticDemos, setOptimisticDemos] = useState<DemoRequest[]>([]);
 
   // Sync drafts to localStorage whenever they change
   useEffect(() => {
     saveDrafts(drafts);
   }, [drafts]);
 
-  const demos: DemoRequest[] = data?.demos ?? [];
+  // Refresh dashboard data every time the user lands on the Demos page so a
+  // freshly-submitted card shows up without waiting for the 5-minute interval.
+  useEffect(() => {
+    onRefresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const serverDemos: DemoRequest[] = data?.demos ?? [];
+  // Merge optimistic demos (front), dropping any that the server has now returned.
+  const serverIds = new Set(serverDemos.map(d => d.id));
+  const demos: DemoRequest[] = [
+    ...optimisticDemos.filter(d => !serverIds.has(d.id)),
+    ...serverDemos,
+  ];
+  // Once the server confirms an optimistic demo, drop it from local state.
+  useEffect(() => {
+    if (optimisticDemos.length === 0) return;
+    const stillPending = optimisticDemos.filter(d => !serverIds.has(d.id));
+    if (stillPending.length !== optimisticDemos.length) {
+      setOptimisticDemos(stillPending);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   // ── Wizard Controls ────────────────────────────────────────────────────
 
@@ -226,6 +322,7 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
     setActiveDraft(draft);
     setWizardStep(0);
     setFiles([]);
+    setSubmitError(null);
     setWizardOpen(true);
   }, []);
 
@@ -233,6 +330,7 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
     setActiveDraft({ ...draft });
     setWizardStep(draft.step);
     setFiles([]);
+    setSubmitError(null);
     setWizardOpen(true);
   }, []);
 
@@ -275,22 +373,55 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
   const handleSubmit = async () => {
     if (!activeDraft) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
-      await submitDemoRequest({
+      const created = await submitDemoRequest({
         title: activeDraft.title,
         customer_name: activeDraft.customer_name,
+        customer_website_url: activeDraft.customer_website_url,
+        industry_primary: activeDraft.industry_primary || '',
+        industry_secondary: activeDraft.industry_secondary,
+        azure_region: activeDraft.azure_region || 'westus3',
+        existing_fabric_workspace_id: activeDraft.existing_fabric_workspace_id,
         scenario: activeDraft.scenario,
         template: activeDraft.template,
         requirements: activeDraft.requirements,
         technologies: activeDraft.technologies,
         files: files.length > 0 ? files : undefined,
       });
+      // Optimistically inject the card so it shows immediately, before the
+      // server-side cache invalidates and the next /overview fetch returns.
+      const now = new Date().toISOString();
+      setOptimisticDemos(prev => [
+        {
+          id: created.id,
+          title: `[Demo] ${activeDraft.title}`,
+          customer_name: activeDraft.customer_name,
+          customer_website_url: activeDraft.customer_website_url,
+          industry_primary: activeDraft.industry_primary,
+          industry_secondary: activeDraft.industry_secondary,
+          azure_region: activeDraft.azure_region,
+          existing_fabric_workspace_id: activeDraft.existing_fabric_workspace_id,
+          scenario: activeDraft.scenario,
+          template: activeDraft.template,
+          requirements: activeDraft.requirements,
+          technologies: activeDraft.technologies,
+          status: 'queued',
+          assigned_agents: [],
+          created_at: now,
+          updated_at: now,
+          url: created.url,
+        },
+        ...prev,
+      ]);
       // Remove draft on successful submission
       setDrafts(prev => prev.filter(d => d.id !== activeDraft.id));
       setWizardOpen(false);
       setActiveDraft(null);
       setFiles([]);
       onRefresh();
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
     }
@@ -349,10 +480,10 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                   </Text>
                 </div>
                 <div style={{ display: 'flex', gap: 4 }}>
-                  <Tooltip content="Resume" relationship="label">
+                  <Tooltip content="Edit draft" relationship="label">
                     <Button
                       appearance="subtle"
-                      icon={<Play24Regular />}
+                      icon={<Edit24Regular />}
                       onClick={() => resumeDraft(draft)}
                     />
                   </Tooltip>
@@ -404,17 +535,20 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                     {demo.updated_at !== demo.created_at && ` · Updated ${new Date(demo.updated_at).toLocaleDateString()}`}
                   </Text>
                 </div>
-                {demo.url && (
-                  <Tooltip content="Open in GitHub" relationship="label">
-                    <Button
-                      appearance="subtle"
-                      icon={<Open16Regular />}
-                      as="a"
-                      href={demo.url}
-                      target="_blank"
-                    />
-                  </Tooltip>
-                )}
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  <DemoRunSection demoId={demo.id} />
+                  {demo.url && (
+                    <Tooltip content="Open in GitHub" relationship="label">
+                      <Button
+                        appearance="subtle"
+                        icon={<Open16Regular />}
+                        as="a"
+                        href={demo.url}
+                        target="_blank"
+                      />
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             </Card>
           ))}
@@ -433,7 +567,7 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
           }
         }
       }}>
-        <DialogSurface>
+        <DialogSurface className={styles.wizardSurface}>
           <DialogBody>
             <DialogTitle>
               New Demo Request — Step {wizardStep + 1} of {TOTAL_STEPS}
@@ -449,6 +583,50 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                         value={activeDraft?.customer_name ?? ''}
                         onChange={(_, d) => updateDraft({ customer_name: d.value })}
                         placeholder="e.g. Contoso Ltd"
+                      />
+                    </Field>
+                    <Field label="Customer Website URL (optional)" hint="Used by the Demo Data Agent for best-effort public data pull.">
+                      <Input
+                        value={activeDraft?.customer_website_url ?? ''}
+                        onChange={(_, d) => updateDraft({ customer_website_url: d.value })}
+                        placeholder="https://www.contoso.com"
+                      />
+                    </Field>
+                    <Field label="Primary Industry" required>
+                      <Dropdown
+                        value={activeDraft?.industry_primary ?? ''}
+                        selectedOptions={[activeDraft?.industry_primary ?? '']}
+                        onOptionSelect={(_, d) => updateDraft({ industry_primary: d.optionValue ?? '' })}
+                      >
+                        {INDUSTRIES.map(i => (
+                          <Option key={i} value={i}>{i}</Option>
+                        ))}
+                      </Dropdown>
+                    </Field>
+                    <Field label="Secondary Industry (optional)">
+                      <Dropdown
+                        value={activeDraft?.industry_secondary ?? ''}
+                        selectedOptions={[activeDraft?.industry_secondary ?? '']}
+                        onOptionSelect={(_, d) => updateDraft({ industry_secondary: d.optionValue ?? '' })}
+                      >
+                        <Option key="__none__" value="">(none)</Option>
+                        {INDUSTRIES.map(i => (
+                          <Option key={i} value={i}>{i}</Option>
+                        ))}
+                      </Dropdown>
+                    </Field>
+                    <Field label="Target Azure Region" hint="Default is westus3 (matches existing Fabric capacity).">
+                      <Input
+                        value={activeDraft?.azure_region ?? 'westus3'}
+                        onChange={(_, d) => updateDraft({ azure_region: d.value })}
+                        placeholder="westus3"
+                      />
+                    </Field>
+                    <Field label="Existing Fabric Workspace ID (optional)" hint="If empty, a new workspace will be designed on the existing capacity.">
+                      <Input
+                        value={activeDraft?.existing_fabric_workspace_id ?? ''}
+                        onChange={(_, d) => updateDraft({ existing_fabric_workspace_id: d.value })}
+                        placeholder="GUID"
                       />
                     </Field>
                     <Field label="Demo Title" required>
@@ -490,7 +668,7 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                 {wizardStep === 2 && (
                   <>
                     <Field label="Requirements">
-                      <div className={styles.checkboxGrid}>
+                      <div className={styles.checkboxGridScroll}>
                         {REQUIREMENT_OPTIONS.map(req => (
                           <Checkbox
                             key={req}
@@ -508,25 +686,27 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                         ))}
                       </div>
                     </Field>
-                    <Field label="Technologies">
-                      <div className={styles.checkboxGrid}>
-                        {TECHNOLOGY_OPTIONS.map(tech => (
-                          <Checkbox
-                            key={tech}
-                            label={tech}
-                            checked={activeDraft?.technologies.includes(tech)}
-                            onChange={(_, d) => {
-                              const techs = activeDraft?.technologies ?? [];
-                              updateDraft({
-                                technologies: d.checked
-                                  ? [...techs, tech]
-                                  : techs.filter(t => t !== tech),
-                              });
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </Field>
+                    {TECHNOLOGY_GROUPS.map(group => (
+                      <Field key={group.label} label={`Technologies — ${group.label}`}>
+                        <div className={styles.checkboxGridScroll}>
+                          {group.options.map(tech => (
+                            <Checkbox
+                              key={tech}
+                              label={tech}
+                              checked={activeDraft?.technologies.includes(tech)}
+                              onChange={(_, d) => {
+                                const techs = activeDraft?.technologies ?? [];
+                                updateDraft({
+                                  technologies: d.checked
+                                    ? [...techs, tech]
+                                    : techs.filter(t => t !== tech),
+                                });
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </Field>
+                    ))}
                   </>
                 )}
 
@@ -568,8 +748,19 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                       </MessageBarBody>
                     </MessageBar>
                     <Field label="Customer">
-                      <Text>{activeDraft?.customer_name}</Text>
+                      <Text>{activeDraft?.customer_name}{activeDraft?.customer_website_url ? ` (${activeDraft.customer_website_url})` : ''}</Text>
                     </Field>
+                    <Field label="Industry">
+                      <Text>{activeDraft?.industry_primary || '(none)'}{activeDraft?.industry_secondary ? ` / ${activeDraft.industry_secondary}` : ''}</Text>
+                    </Field>
+                    <Field label="Azure Region">
+                      <Text>{activeDraft?.azure_region || 'westus3'}</Text>
+                    </Field>
+                    {activeDraft?.existing_fabric_workspace_id && (
+                      <Field label="Reuse Fabric Workspace">
+                        <Text>{activeDraft.existing_fabric_workspace_id}</Text>
+                      </Field>
+                    )}
                     <Field label="Title">
                       <Text>{activeDraft?.title}</Text>
                     </Field>
@@ -610,6 +801,29 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                 )}
               </div>
             </DialogContent>
+            {submitError && (
+              <MessageBar
+                intent="error"
+                layout="multiline"
+                className="wrap-anywhere"
+                style={{ margin: '0 24px', maxWidth: 'calc(100% - 48px)' }}
+              >
+                <MessageBarBody className="wrap-anywhere">
+                  <MessageBarTitle>Submit failed</MessageBarTitle>
+                  <span className="wrap-anywhere">{submitError}</span>
+                </MessageBarBody>
+                <MessageBarActions
+                  containerAction={
+                    <Button
+                      appearance="transparent"
+                      icon={<Dismiss24Regular />}
+                      aria-label="Dismiss"
+                      onClick={() => setSubmitError(null)}
+                    />
+                  }
+                />
+              </MessageBar>
+            )}
             <DialogActions>
               <Button
                 appearance="secondary"
@@ -628,7 +842,7 @@ export function DemoPage({ data, loading, error: _error, onRefresh }: PageProps)
                 <Button
                   appearance="primary"
                   onClick={() => setWizardStep(s => s + 1)}
-                  disabled={wizardStep === 0 && (!activeDraft?.customer_name || !activeDraft?.title)}
+                  disabled={wizardStep === 0 && (!activeDraft?.customer_name || !activeDraft?.title || !activeDraft?.industry_primary)}
                 >
                   Next
                 </Button>

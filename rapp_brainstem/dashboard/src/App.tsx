@@ -7,6 +7,7 @@ import {
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { Shell } from './components/Shell';
+import { QuestionBlade } from './components/QuestionBlade';
 import { OverviewPage } from './pages/OverviewPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { AzurePage } from './pages/AzurePage';
@@ -63,6 +64,7 @@ export function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Shell>
+        <QuestionBlade />
       </BrowserRouter>
     </FluentProvider>
   );

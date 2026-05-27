@@ -198,29 +198,52 @@ def _issue_status(issue: dict) -> str:
 
 
 def _fetch_demos() -> list[dict]:
-    """Fetch open demo requests from GitHub repo (issues with 'demo' label)."""
+    """Fetch demo requests from GitHub repo.
+
+    Includes issues with the 'demo' label AND any issue whose title starts with
+    '[Demo]' (so requests created without the label — e.g. when the user lacks
+    label-create permission — still surface).
+    """
     token = _get_github_token()
     if not token:
         return []
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    issues_by_number: dict[int, dict] = {}
     try:
+        # Pass 1: label-filtered (cheap & precise)
         resp = requests.get(
             f"https://api.github.com/repos/{_GH_REPO}/issues",
-            headers={
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github.v3+json",
-            },
+            headers=headers,
             params={"state": "all", "labels": "demo", "per_page": 30},
             timeout=10,
         )
-        if resp.status_code != 200:
-            print(f"[dashboard] GitHub demo issues error: {resp.status_code}")
-            return []
-        issues = resp.json()
+        if resp.status_code == 200:
+            for issue in resp.json():
+                if not issue.get("pull_request"):
+                    issues_by_number[issue["number"]] = issue
+        else:
+            print(f"[dashboard] GitHub demo (label) issues error: {resp.status_code}")
+
+        # Pass 2: title-prefix fallback for issues created without the label
+        resp2 = requests.get(
+            f"https://api.github.com/repos/{_GH_REPO}/issues",
+            headers=headers,
+            params={"state": "all", "per_page": 30},
+            timeout=10,
+        )
+        if resp2.status_code == 200:
+            for issue in resp2.json():
+                if issue.get("pull_request"):
+                    continue
+                title = issue.get("title") or ""
+                if title.startswith("[Demo]") and issue["number"] not in issues_by_number:
+                    issues_by_number[issue["number"]] = issue
+
         demos = []
-        for issue in issues:
-            if issue.get("pull_request"):
-                continue
-            # Parse metadata from issue body (JSON block)
+        for issue in issues_by_number.values():
             meta = _parse_demo_metadata(issue.get("body") or "")
             labels = [l["name"].lower() for l in issue.get("labels", [])]
             status = "completed" if issue["state"] == "closed" else _issue_status(issue)
@@ -230,6 +253,11 @@ def _fetch_demos() -> list[dict]:
                 "id": str(issue["number"]),
                 "title": issue["title"],
                 "customer_name": meta.get("customer_name", ""),
+                "customer_website_url": meta.get("customer_website_url", ""),
+                "industry_primary": meta.get("industry_primary", ""),
+                "industry_secondary": meta.get("industry_secondary", ""),
+                "azure_region": meta.get("azure_region", ""),
+                "existing_fabric_workspace_id": meta.get("existing_fabric_workspace_id", ""),
                 "scenario": meta.get("scenario", ""),
                 "template": meta.get("template", ""),
                 "requirements": meta.get("requirements", []),
@@ -240,6 +268,8 @@ def _fetch_demos() -> list[dict]:
                 "updated_at": issue["updated_at"],
                 "url": issue["html_url"],
             })
+        # Sort newest first
+        demos.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
         return demos
     except Exception as e:
         print(f"[dashboard] GitHub demo fetch error: {e}")
@@ -913,6 +943,11 @@ def dashboard_create_demo():
     if request.content_type and "multipart/form-data" in request.content_type:
         title = request.form.get("title", "").strip()
         customer_name = request.form.get("customer_name", "").strip()
+        customer_website_url = request.form.get("customer_website_url", "").strip()
+        industry_primary = request.form.get("industry_primary", "").strip()
+        industry_secondary = request.form.get("industry_secondary", "").strip()
+        azure_region = (request.form.get("azure_region", "").strip() or "westus3")
+        existing_fabric_workspace_id = request.form.get("existing_fabric_workspace_id", "").strip()
         scenario = request.form.get("scenario", "").strip()
         template = request.form.get("template", "").strip()
         requirements = json.loads(request.form.get("requirements", "[]"))
@@ -922,6 +957,11 @@ def dashboard_create_demo():
         data = request.get_json(force=True) or {}
         title = data.get("title", "").strip()
         customer_name = data.get("customer_name", "").strip()
+        customer_website_url = data.get("customer_website_url", "").strip()
+        industry_primary = data.get("industry_primary", "").strip()
+        industry_secondary = data.get("industry_secondary", "").strip()
+        azure_region = (data.get("azure_region", "").strip() or "westus3")
+        existing_fabric_workspace_id = data.get("existing_fabric_workspace_id", "").strip()
         scenario = data.get("scenario", "").strip()
         template = data.get("template", "").strip()
         requirements = data.get("requirements", [])
@@ -932,10 +972,17 @@ def dashboard_create_demo():
         return jsonify({"error": "Title is required"}), 400
     if not customer_name:
         return jsonify({"error": "Customer name is required"}), 400
+    if not industry_primary:
+        return jsonify({"error": "Primary industry is required"}), 400
 
     # Build issue body with embedded metadata
     metadata = {
         "customer_name": customer_name,
+        "customer_website_url": customer_website_url,
+        "industry_primary": industry_primary,
+        "industry_secondary": industry_secondary,
+        "azure_region": azure_region,
+        "existing_fabric_workspace_id": existing_fabric_workspace_id,
         "scenario": scenario,
         "template": template,
         "requirements": requirements,
@@ -944,7 +991,17 @@ def dashboard_create_demo():
     }
 
     body = f"## Demo Request: {title}\n\n"
-    body += f"**Customer:** {customer_name}\n"
+    body += f"**Customer:** {customer_name}"
+    if customer_website_url:
+        body += f" ({customer_website_url})"
+    body += "\n"
+    body += f"**Industry:** {industry_primary}"
+    if industry_secondary:
+        body += f" / {industry_secondary}"
+    body += "\n"
+    body += f"**Azure Region:** {azure_region}\n"
+    if existing_fabric_workspace_id:
+        body += f"**Existing Fabric Workspace:** `{existing_fabric_workspace_id}`\n"
     if template:
         body += f"**Template:** {template}\n"
     body += f"\n### Scenario\n{scenario}\n\n"
@@ -959,15 +1016,25 @@ def dashboard_create_demo():
     body += "\n```\n"
 
     try:
-        resp = requests.post(
-            f"https://api.github.com/repos/{_GH_REPO}/issues",
-            headers={
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github.v3+json",
-            },
-            json={"title": f"[Demo] {title}", "body": body, "labels": ["demo"]},
-            timeout=10,
-        )
+        def _post_issue(include_label: bool):
+            payload = {"title": f"[Demo] {title}", "body": body}
+            if include_label:
+                payload["labels"] = ["demo"]
+            return requests.post(
+                f"https://api.github.com/repos/{_GH_REPO}/issues",
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+                json=payload,
+                timeout=10,
+            )
+
+        resp = _post_issue(include_label=True)
+        # If user can't create labels on the repo, retry without the label.
+        if resp.status_code == 403 and "label" in (resp.text or "").lower():
+            print("[dashboard] Label creation denied; retrying issue creation without 'demo' label")
+            resp = _post_issue(include_label=False)
         if resp.status_code in (200, 201):
             issue = resp.json()
             _cache["timestamp"] = 0
@@ -979,3 +1046,236 @@ def dashboard_create_demo():
             return jsonify({"error": f"GitHub API error: {resp.status_code}", "detail": resp.text[:300]}), resp.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Demo runs (background worker) ────────────────────────────────────────────
+
+def _comment_on_demo(demo_id: str, body: str) -> None:
+    """Best-effort: post a comment to the GitHub issue backing this demo."""
+    token = _get_github_token()
+    if not token:
+        return
+    try:
+        requests.post(
+            f"https://api.github.com/repos/{_GH_REPO}/issues/{demo_id}/comments",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
+            json={"body": body},
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"[dashboard] comment on demo {demo_id} failed: {e}")
+
+
+def _label_demo(demo_id: str, add: list[str] | None = None, remove: list[str] | None = None) -> None:
+    """Best-effort: add/remove labels on the GitHub issue."""
+    token = _get_github_token()
+    if not token:
+        return
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    try:
+        if add:
+            requests.post(
+                f"https://api.github.com/repos/{_GH_REPO}/issues/{demo_id}/labels",
+                headers=headers, json={"labels": add}, timeout=10,
+            )
+        for lbl in (remove or []):
+            requests.delete(
+                f"https://api.github.com/repos/{_GH_REPO}/issues/{demo_id}/labels/{lbl}",
+                headers=headers, timeout=10,
+            )
+    except Exception as e:
+        print(f"[dashboard] label demo {demo_id} failed: {e}")
+
+
+def _find_demo(demo_id: str) -> dict | None:
+    for d in _fetch_demos():
+        if str(d.get("id")) == str(demo_id):
+            return d
+    return None
+
+
+@dashboard_bp.route("/api/dashboard/demos/<demo_id>/run", methods=["POST"])
+def dashboard_start_demo_run(demo_id: str):
+    """Kick off a background run for a demo. Returns the run state."""
+    try:
+        import agent_runner
+    except Exception as e:
+        return jsonify({"error": f"runner unavailable: {e}"}), 500
+
+    demo = _find_demo(demo_id)
+    if not demo:
+        return jsonify({"error": f"Demo {demo_id} not found"}), 404
+
+    state = agent_runner.create_run(demo)
+
+    # Best-effort: mark the issue in-progress
+    _label_demo(demo_id, add=["in-progress"], remove=["draft"])
+    _comment_on_demo(demo_id, f"🚀 Run started: `{state['run_id']}` (via Brainstem dashboard).")
+    _cache["timestamp"] = 0
+    return jsonify(state), 202
+
+
+@dashboard_bp.route("/api/dashboard/runs/<run_id>", methods=["GET"])
+def dashboard_get_run(run_id: str):
+    import agent_runner
+    state = agent_runner.read_run_state(run_id)
+    if not state:
+        return jsonify({"error": "run not found"}), 404
+    return jsonify(state)
+
+
+@dashboard_bp.route("/api/dashboard/runs/<run_id>/events", methods=["GET"])
+def dashboard_get_run_events(run_id: str):
+    import agent_runner
+    try:
+        since = int(request.args.get("since", "-1"))
+    except ValueError:
+        since = -1
+    events = agent_runner.read_events(run_id, since_seq=since)
+    next_since = events[-1]["seq"] if events else since
+    state = agent_runner.read_run_state(run_id) or {}
+    return jsonify({
+        "run_id": run_id,
+        "events": events,
+        "next_since": next_since,
+        "status": state.get("status"),
+        "pending_question": state.get("pending_question"),
+    })
+
+
+@dashboard_bp.route("/api/dashboard/runs/<run_id>/answer", methods=["POST"])
+def dashboard_answer_question(run_id: str):
+    import agent_runner
+    body = request.get_json(force=True) or {}
+    question_id = body.get("question_id", "")
+    answer = body.get("answer", "")
+    if not question_id:
+        return jsonify({"error": "question_id is required"}), 400
+    ok = agent_runner.submit_answer(run_id, question_id, answer)
+    if not ok:
+        return jsonify({"error": "no matching pending question for this run"}), 409
+    return jsonify({"ok": True})
+
+
+@dashboard_bp.route("/api/dashboard/runs/<run_id>/cancel", methods=["POST"])
+def dashboard_cancel_run(run_id: str):
+    import agent_runner
+    ok = agent_runner.cancel_run(run_id)
+    return jsonify({"ok": ok})
+
+
+@dashboard_bp.route("/api/dashboard/demos/<demo_id>/runs", methods=["GET"])
+def dashboard_runs_for_demo(demo_id: str):
+    import agent_runner
+    runs = agent_runner.get_runs_for_demo(demo_id)
+    return jsonify({"runs": runs})
+
+
+@dashboard_bp.route("/api/dashboard/runs/awaiting_user", methods=["GET"])
+def dashboard_runs_awaiting_user():
+    """List runs that currently need a user answer. Polled by the dashboard
+    so it can pop the question blade automatically."""
+    import agent_runner
+    idx = agent_runner._read_index()
+    out = []
+    for demo_id, run_ids in idx.items():
+        for rid in run_ids:
+            state = agent_runner.read_run_state(rid)
+            if state and state.get("status") == "awaiting_user":
+                out.append(state)
+    return jsonify({"runs": out})
+
+
+# ── Demo auto-poller ─────────────────────────────────────────────────────────
+# Watches GitHub Issues for new/updated demo requests and auto-kicks runs.
+
+import threading as _threading
+
+_POLL_INTERVAL_SEC = 60
+_POLL_STATE_PATH = os.path.join(_BASE_DIR, ".brainstem_data", "demo_poll_state.json")
+_poller_started = False
+_poller_lock = _threading.Lock()
+
+
+def _load_poll_state() -> dict:
+    try:
+        with open(_POLL_STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_poll_state(state: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_POLL_STATE_PATH), exist_ok=True)
+        with open(_POLL_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        print(f"[dashboard] poll state save failed: {e}")
+
+
+def _demo_poller_loop() -> None:
+    print(f"[dashboard] demo auto-poller started (interval={_POLL_INTERVAL_SEC}s)")
+    try:
+        import agent_runner
+    except Exception as e:
+        print(f"[dashboard] poller cannot import agent_runner: {e}")
+        return
+
+    while True:
+        try:
+            time.sleep(_POLL_INTERVAL_SEC)
+            poll_state = _load_poll_state()
+            seen = poll_state.get("seen", {})  # demo_id -> updated_at
+
+            try:
+                demos = _fetch_demos()
+            except Exception as e:
+                print(f"[dashboard] poller fetch error: {e}")
+                continue
+
+            changed = False
+            for demo in demos:
+                demo_id = demo.get("id")
+                if not demo_id:
+                    continue
+                updated_at = demo.get("updated_at", "")
+                status = demo.get("status", "")
+                prev = seen.get(demo_id)
+
+                # Skip terminal/in-progress states
+                if status in ("completed", "in-progress", "draft"):
+                    seen[demo_id] = updated_at
+                    changed = True
+                    continue
+
+                # New or updated since we last saw it
+                if prev != updated_at:
+                    try:
+                        print(f"[dashboard] poller auto-starting run for demo {demo_id} ({demo.get('title','')})")
+                        agent_runner.create_run(demo)
+                        _label_demo(demo_id, add=["in-progress"], remove=["draft"])
+                        _comment_on_demo(demo_id, "🤖 Brainstem auto-detected this demo request and started a build run.")
+                        _cache["timestamp"] = 0
+                    except Exception as e:
+                        print(f"[dashboard] poller auto-run failed for {demo_id}: {e}")
+                    seen[demo_id] = updated_at
+                    changed = True
+
+            if changed:
+                poll_state["seen"] = seen
+                poll_state["last_poll"] = time.time()
+                _save_poll_state(poll_state)
+        except Exception as e:
+            print(f"[dashboard] poller loop error: {e}")
+
+
+def start_demo_poller() -> None:
+    """Start the background demo poller thread (idempotent)."""
+    global _poller_started
+    with _poller_lock:
+        if _poller_started:
+            return
+        _poller_started = True
+    t = _threading.Thread(target=_demo_poller_loop, name="demo-poller", daemon=True)
+    t.start()

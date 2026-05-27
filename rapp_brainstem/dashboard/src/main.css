@@ -1,0 +1,27 @@
+/* Global overflow safety net: long error strings, URLs, tokens, etc. must wrap
+   instead of pushing parent containers off the screen. Applies to Fluent UI
+   MessageBars and any "long-text" element that opts in. */
+.fui-MessageBar,
+.fui-MessageBarBody {
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Generic wrap helper — add className="wrap-anywhere" to any element with
+   user-supplied text that could overflow (file names, URLs, error details). */
+.wrap-anywhere {
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Prevent the page itself from getting a horizontal scrollbar from rogue
+   wide children — much better to wrap or scroll inside the offending panel. */
+html, body, #root {
+  overflow-x: hidden;
+}

@@ -1048,4 +1048,9 @@ if __name__ == "__main__":
     print(f"   Auth:   GitHub Copilot API (via gh CLI)\n")
     load_soul()
     load_agents()
+    try:
+        from dashboard_api import start_demo_poller
+        start_demo_poller()
+    except Exception as _e:
+        print(f"   Poller: failed to start ({_e})")
     app.run(host="0.0.0.0", port=PORT, debug=False)

@@ -117,6 +117,7 @@ export function AgentsPage({ data, loading, error: _error, onRefresh }: PageProp
         customer_name: '',
         scenario: projectDesc,
         template: '',
+        industry_primary: 'Technology',
         requirements: [],
         technologies: [],
         files: projectFiles.length > 0 ? projectFiles : undefined,

@@ -83,6 +83,11 @@ export interface DemoRequest {
   id: string;
   title: string;
   customer_name: string;
+  customer_website_url?: string;
+  industry_primary?: string;
+  industry_secondary?: string;
+  azure_region?: string;
+  existing_fabric_workspace_id?: string;
   scenario: string;
   template: string;
   requirements: string[];
@@ -98,6 +103,11 @@ export interface DemoRequestDraft {
   id?: string;
   step: number;
   customer_name: string;
+  customer_website_url?: string;
+  industry_primary?: string;
+  industry_secondary?: string;
+  azure_region?: string;
+  existing_fabric_workspace_id?: string;
   title: string;
   scenario: string;
   template: string;
@@ -105,6 +115,70 @@ export interface DemoRequestDraft {
   technologies: string[];
   files: string[]; // filenames only (for display)
   saved_at: string;
+}
+
+// ── Demo run / live transcript ────────────────────────────────────────────
+
+export type RunStatus =
+  | 'queued'
+  | 'running'
+  | 'awaiting_user'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface PendingQuestion {
+  question_id: string;
+  question: string;
+  context?: string;
+  asked_at?: string;
+}
+
+export interface RunState {
+  run_id: string;
+  demo_id: string;
+  demo_title: string;
+  customer_name: string;
+  scenario: string;
+  template: string;
+  requirements: string[];
+  technologies: string[];
+  status: RunStatus;
+  pending_question: PendingQuestion | null;
+  started_at: string | null;
+  updated_at: string;
+  completed_at: string | null;
+  summary: string | null;
+  error: string | null;
+  event_count: number;
+}
+
+export type RunEventType =
+  | 'run_queued'
+  | 'run_started'
+  | 'round_started'
+  | 'llm_message'
+  | 'tool_call'
+  | 'tool_result'
+  | 'question'
+  | 'answer'
+  | 'run_completed'
+  | 'run_failed'
+  | 'run_cancelled';
+
+export interface RunEvent {
+  seq: number;
+  ts: string;
+  type: RunEventType;
+  data: Record<string, unknown>;
+}
+
+export interface RunEventsResponse {
+  run_id: string;
+  events: RunEvent[];
+  next_since: number;
+  status: RunStatus | null;
+  pending_question: PendingQuestion | null;
 }
 
 export interface DashboardData {

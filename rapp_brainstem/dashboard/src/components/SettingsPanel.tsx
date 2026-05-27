@@ -24,9 +24,18 @@ import {
   Save20Regular,
   ChevronRight20Regular,
   ChevronDown20Regular,
+  Open20Regular,
+  Copy20Regular,
 } from '@fluentui/react-icons';
 import type { AuthAccount } from '../api/types';
-import { fetchAuthConfig, saveAuthConfig } from '../api/client';
+import {
+  fetchAuthConfig,
+  saveAuthConfig,
+  startGitHubLogin,
+  pollGitHubLogin,
+  fetchGitHubAuthStatus,
+} from '../api/client';
+import type { GitHubLoginStart, GitHubAuthStatus } from '../api/client';
 
 const useStyles = makeStyles({
   section: {
@@ -94,6 +103,12 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [originalAccounts, setOriginalAccounts] = useState<AuthAccount[]>([]);
 
+  // GitHub sign-in state
+  const [ghStatus, setGhStatus] = useState<GitHubAuthStatus | null>(null);
+  const [ghLogin, setGhLogin] = useState<GitHubLoginStart | null>(null);
+  const [ghStarting, setGhStarting] = useState(false);
+  const [ghError, setGhError] = useState<string | null>(null);
+
   const isDirty = JSON.stringify(accounts) !== JSON.stringify(originalAccounts);
 
   useEffect(() => {
@@ -104,8 +119,54 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         .then((cfg) => { setAccounts(cfg.accounts); setOriginalAccounts(cfg.accounts); })
         .catch(() => { setAccounts([]); setOriginalAccounts([]); })
         .finally(() => setLoading(false));
+      // Refresh GitHub auth status on open
+      fetchGitHubAuthStatus().then(setGhStatus).catch(() => setGhStatus(null));
     }
   }, [open]);
+
+  // Poll for device-code completion while a login is in progress
+  useEffect(() => {
+    if (!ghLogin) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await pollGitHubLogin();
+        if (cancelled) return;
+        if (res.status === 'ok') {
+          setGhLogin(null);
+          setGhError(null);
+          const status = await fetchGitHubAuthStatus();
+          if (!cancelled) setGhStatus(status);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setGhError(e instanceof Error ? e.message : String(e));
+        setGhLogin(null);
+      }
+    };
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [ghLogin]);
+
+  const handleStartGitHubLogin = async () => {
+    setGhError(null);
+    setGhStarting(true);
+    try {
+      const data = await startGitHubLogin();
+      setGhLogin(data);
+      // Open verification page automatically for convenience
+      try { window.open(data.verification_uri, '_blank', 'noopener'); } catch { /* ignore */ }
+    } catch (e) {
+      setGhError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGhStarting(false);
+    }
+  };
+
+  const copyUserCode = async () => {
+    if (!ghLogin) return;
+    try { await navigator.clipboard.writeText(ghLogin.user_code); } catch { /* ignore */ }
+  };
 
   const updateAccount = (index: number, field: keyof AuthAccount, value: string | boolean) => {
     setAccounts((prev) => prev.map((a, i) => i === index ? { ...a, [field]: value } : a));
@@ -158,6 +219,81 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         </DrawerHeaderTitle>
       </DrawerHeader>
       <DrawerBody>
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>
+            <PersonKey24Regular />
+            <Text weight="semibold" size={400}>GitHub Sign-In</Text>
+          </div>
+          <Divider style={{ marginBottom: '12px' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} className="wrap-anywhere">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <Badge
+                appearance="filled"
+                color={ghStatus?.authenticated ? 'success' : 'danger'}
+                icon={ghStatus?.authenticated ? <ShieldCheckmark20Regular /> : <ShieldDismiss20Regular />}
+              >
+                {ghStatus?.authenticated ? 'Signed in' : 'Not signed in'}
+              </Badge>
+              {ghStatus?.authenticated && (
+                <Badge appearance="outline" color={ghStatus.copilot ? 'success' : 'warning'}>
+                  Copilot {ghStatus.copilot ? 'ready' : 'pending'}
+                </Badge>
+              )}
+              <Button
+                appearance={ghStatus?.authenticated ? 'secondary' : 'primary'}
+                size="small"
+                disabled={ghStarting || !!ghLogin}
+                onClick={handleStartGitHubLogin}
+              >
+                {ghStatus?.authenticated ? 'Sign in again' : 'Sign in to GitHub'}
+              </Button>
+            </div>
+            {ghLogin && (
+              <div
+                className="wrap-anywhere"
+                style={{
+                  padding: '12px',
+                  borderRadius: tokens.borderRadiusMedium,
+                  backgroundColor: tokens.colorNeutralBackground3,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                }}
+              >
+                <Text size={200}>
+                  1. Open <a href={ghLogin.verification_uri} target="_blank" rel="noopener noreferrer">{ghLogin.verification_uri}</a>
+                </Text>
+                <Text size={200}>2. Enter this code:</Text>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <code style={{
+                    fontSize: tokens.fontSizeBase500,
+                    padding: '4px 10px',
+                    borderRadius: tokens.borderRadiusSmall,
+                    backgroundColor: tokens.colorNeutralBackground1,
+                    letterSpacing: '2px',
+                  }}>{ghLogin.user_code}</code>
+                  <Button size="small" icon={<Copy20Regular />} onClick={copyUserCode}>Copy</Button>
+                  <Button
+                    size="small"
+                    icon={<Open20Regular />}
+                    onClick={() => window.open(ghLogin.verification_uri, '_blank', 'noopener')}
+                  >
+                    Open
+                  </Button>
+                </div>
+                <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                  Waiting for authorization... (polls every 5s)
+                </Text>
+              </div>
+            )}
+            {ghError && (
+              <Text size={200} className="wrap-anywhere" style={{ color: tokens.colorPaletteRedForeground1 }}>
+                {ghError}
+              </Text>
+            )}
+          </div>
+        </div>
+
         <div className={styles.section}>
           <div className={styles.sectionTitle}>
             <PersonKey24Regular />
